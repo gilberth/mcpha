@@ -2,7 +2,7 @@
 
 # ubuntu-setup.sh
 
-# Colores para salida
+# Colores
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
@@ -15,10 +15,11 @@ version_greater_equal() {
     printf '%s\n' "$2" "$1" | sort -V -C
 }
 
-# Actualizar sistema
-sudo apt update -y
+# Verifica e instala dependencias básicas
+sudo apt update
+sudo apt install -y curl git jq
 
-# Verificar Node.js
+# Instalar Node.js 20 si no existe o es versión antigua
 if ! command -v node &> /dev/null; then
     echo -e "${RED}Node.js no está instalado. Instalando Node.js 20...${NC}"
     curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
@@ -26,45 +27,40 @@ if ! command -v node &> /dev/null; then
 else
     NODE_VERSION=$(node -v)
     if ! version_greater_equal "${NODE_VERSION//v/}" "20.10.0"; then
-        echo -e "${RED}Se requiere Node.js >= 20.10.0. Versión actual: $NODE_VERSION${NC}"
+        echo -e "${RED}La versión actual de Node.js es muy antigua: $NODE_VERSION${NC}"
+        echo -e "${BLUE}Reinstalando Node.js 20...${NC}"
         curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
         sudo apt install -y nodejs
     fi
 fi
 
-# Verificar npm
+# Verifica npm
 if ! command -v npm &> /dev/null; then
-    echo -e "${RED}npm no está instalado. Instalándolo...${NC}"
-    sudo apt install -y npm
+    echo -e "${RED}npm no está instalado correctamente. Abortando.${NC}"
+    exit 1
 fi
 
-# Verificar jq
-if ! command -v jq &> /dev/null; then
-    echo -e "${RED}jq no está instalado. Instalándolo...${NC}"
-    sudo apt install -y jq
-fi
-
-# Crear carpeta MCP
+# Directorio MCP
 MCP_DIR="$HOME/.mcp"
 mkdir -p "$MCP_DIR"
 
-# Clonar repositorio MCP
+# Clonar el repositorio
 echo -e "${BLUE}Clonando repositorio de Home Assistant MCP...${NC}"
 git clone https://github.com/jango-blockchained/homeassistant-mcp.git "$MCP_DIR/homeassistant-mcp"
 cd "$MCP_DIR/homeassistant-mcp"
 
-# Instalar dependencias y construir
+# Instalar dependencias
 echo -e "${BLUE}Instalando dependencias y construyendo...${NC}"
 npm install
 npm run build
 
-# Directorio de configuración de Claude Desktop (en Linux, usar ~/.config)
-CLAUDE_CONFIG_DIR="$HOME/.config/claude-desktop"
+# Directorio de configuración para Claude Desktop
+CLAUDE_CONFIG_DIR="$HOME/.config/claude"
 mkdir -p "$CLAUDE_CONFIG_DIR"
 
-# Solicitar datos
+# Datos de Home Assistant
 echo -e "${BLUE}Ingrese sus configuraciones:${NC}"
-read -p "URL de Home Assistant (ej: http://homeassistant.local:8123): " HASS_HOST
+read -p "URL de Home Assistant (ej. http://homeassistant.local:8123): " HASS_HOST
 read -p "Token de acceso largo de Home Assistant: " HASS_TOKEN
 
 # Crear archivo .env
@@ -93,13 +89,14 @@ CONFIG_JSON='{
   }
 }'
 
-# Brave Search
-read -p "¿Deseas habilitar la integración con Brave Search? (y/n): " ENABLE_BRAVE_SEARCH
+# Brave Search (opcional)
+read -p "¿Deseas habilitar Brave Search MCP? (s/n): " ENABLE_BRAVE_SEARCH
 
-if [[ $ENABLE_BRAVE_SEARCH =~ ^[Yy]$ ]]; then
+if [[ $ENABLE_BRAVE_SEARCH =~ ^[Ss]$ ]]; then
     echo -e "${BLUE}Instalando Brave Search MCP...${NC}"
     npm install -g @modelcontextprotocol/server-brave-search
-    read -p "Brave Search API Key: " BRAVE_API_KEY
+    
+    read -p "API Key de Brave Search: " BRAVE_API_KEY
 
     CONFIG_JSON=$(echo $CONFIG_JSON | jq '.mcpServers += {
       "brave-search": {
@@ -112,34 +109,32 @@ if [[ $ENABLE_BRAVE_SEARCH =~ ^[Yy]$ ]]; then
     }')
 fi
 
-# Guardar configuración
+# Guardar configuración final
 echo $CONFIG_JSON | jq '.' > "$CLAUDE_CONFIG_DIR/claude_desktop_config.json"
 
+# Permisos
 chmod 600 "$CLAUDE_CONFIG_DIR/claude_desktop_config.json"
 chmod 600 "$MCP_DIR/homeassistant-mcp/.env"
 
-echo -e "${GREEN}¡Instalación completada!${NC}"
-echo -e "${BLUE}Archivos creados en:${NC}"
+echo -e "${GREEN}¡Instalación completa!${NC}"
+echo -e "${BLUE}Archivos de configuración:${NC}"
 echo " - $CLAUDE_CONFIG_DIR/claude_desktop_config.json"
 echo " - $MCP_DIR/homeassistant-mcp/.env"
 
-echo -e "${BLUE}Para usar la integración:${NC}"
-echo "1. Asegúrate de tener Claude Desktop instalado (https://claude.ai/download)"
+echo -e "${BLUE}Pasos finales:${NC}"
+echo "1. Asegúrate de tener Claude Desktop instalado desde https://claude.ai/download"
 echo "2. Reinicia Claude Desktop"
-echo "3. La integración con Home Assistant debería estar activa"
-if [[ $ENABLE_BRAVE_SEARCH =~ ^[Yy]$ ]]; then
-    echo "4. Brave Search MCP también está activo"
-fi
+echo "3. La integración con Home Assistant MCP ya está lista"
+[[ $ENABLE_BRAVE_SEARCH =~ ^[Ss]$ ]] && echo "4. También está lista la integración con Brave Search MCP"
 
-echo -e "${RED}Nota: Nunca compartas tus tokens o claves API públicamente${NC}"
+echo -e "${RED}Nota: Mantén tus tokens y claves seguros${NC}"
 
-# Pruebas
-read -p "¿Deseas probar las instalaciones ahora? (y/n): " -n 1 -r
-echo
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    echo -e "${BLUE}Probando conexión con Home Assistant MCP...${NC}"
+# Test opcional
+read -p "¿Deseas probar las integraciones? (s/n): " TEST_OPTION
+if [[ $TEST_OPTION =~ ^[Ss]$ ]]; then
+    echo -e "${BLUE}Probando Home Assistant MCP...${NC}"
     node "$MCP_DIR/homeassistant-mcp/dist/index.js" test
-    if [[ $ENABLE_BRAVE_SEARCH =~ ^[Yy]$ ]]; then
+    if [[ $ENABLE_BRAVE_SEARCH =~ ^[Ss]$ ]]; then
         echo -e "${BLUE}Probando Brave Search MCP...${NC}"
         npx @modelcontextprotocol/server-brave-search test
     fi
